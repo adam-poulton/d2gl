@@ -514,6 +514,11 @@ void Context::renderThread(void* context)
 			glBufferSubData(GL_ARRAY_BUFFER, 0, cmd->m_vertex_mod_count * sizeof(VertexMod), ctx->m_vertices_mod.data[frame_index].data());
 
 			ctx->bindPipeline(ctx->m_mod_pipeline);
+			ctx->m_mod_pipeline->setUniform1i("u_OccluderCount", cmd->m_occluders.count);
+			if (cmd->m_occluders.count) {
+				ctx->m_mod_pipeline->setUniformVec4fArray("u_Occluders", cmd->m_occluders.rects, cmd->m_occluders.count);
+				ctx->m_mod_pipeline->setUniform1fArray("u_OccluderAtten", cmd->m_occluders.attenuations, cmd->m_occluders.count);
+			}
 			if (cmd->m_hd_text_mask.active) {
 				ctx->m_mod_pipeline->setUniformVec4f("u_TextMask", cmd->m_hd_text_mask.metrics);
 				ctx->m_mod_pipeline->setUniform1i("u_IsMasking", cmd->m_hd_text_mask.masking);
@@ -733,6 +738,8 @@ void Context::beginFrame()
 	m_vertices_late.count = 0;
 	m_vertices_late.ptr = m_vertices_late.data[0].data();
 
+	m_occluders.count = 0;
+
 	m_frame.vertex_count = 0;
 	m_frame.drawcall_count = 0;
 
@@ -760,6 +767,7 @@ void Context::presentFrame()
 
 	if (m_vertices_mod.count) {
 		m_command_buffer[m_frame_index].m_vertex_mod_count = m_vertices_mod.count;
+		m_command_buffer[m_frame_index].m_occluders = m_occluders;
 		m_frame.drawcall_count++;
 	}
 	option::Menu::instance().check();
@@ -817,6 +825,46 @@ void Context::pushVertex(const GlideVertex* vertex, glm::vec2 fix, glm::ivec2 of
 	m_frame.vertex_count++;
 }
 
+bool Context::pushFlatQuad(glm::vec2 pos, glm::vec2 size, uint32_t color)
+{
+	if (!ISGLIDE3X())
+		return false;
+
+	if (m_vertices.count >= MAX_VERTICES - 4)
+		flushVertices();
+
+	// Flat fills need SAlpha_OneMinusSAlpha (glide blend 5 = pipeline index 3). While the
+	// blend state is locked it is already bound to 3, so no state switch is needed there.
+	const bool switch_blend = !m_blend_locked && m_current_blend_index != 3;
+	if (switch_blend) {
+		flushVertices();
+		m_command_buffer[m_frame_index].pushCommand(CommandType::SetBlendState, 3);
+	}
+
+	const glm::vec2 end = pos + size;
+	const glm::vec2 corners[4] = { { pos.x, pos.y }, { end.x, pos.y }, { end.x, end.y }, { pos.x, end.y } };
+
+	for (const auto& corner : corners) {
+		m_vertices.ptr->position = { glm::detail::toFloat16(corner.x), glm::detail::toFloat16(corner.y) };
+		m_vertices.ptr->tex_coord = { 0.0f, 0.0f };
+		m_vertices.ptr->color1 = 0xFFFFFFFF;
+		m_vertices.ptr->color2 = color;
+		m_vertices.ptr->tex_ids = { 0, 0 };
+		m_vertices.ptr->flags = { 0, 1, 1, 0 }; // untextured constant color, alpha from color2
+
+		m_vertices.ptr++;
+		m_vertices.count++;
+		m_frame.vertex_count++;
+	}
+
+	if (switch_blend) {
+		flushVertices();
+		m_command_buffer[m_frame_index].pushCommand(CommandType::SetBlendState, m_current_blend_index);
+	}
+
+	return true;
+}
+
 void Context::flushVertices()
 {
 	if (m_vertices.count == 0)
@@ -850,18 +898,42 @@ void Context::pushObject(const std::unique_ptr<Object>& object)
 {
 	const auto vertices = object->getVertices();
 
-	if (m_delay_push) {
-		memcpy(m_vertices_late.ptr, vertices, sizeof(VertexMod) * 4);
+	// Delayed objects (hover tooltips, cursor) are appended last and belong above every panel, so
+	// they opt out of occlusion entirely.
+	const uint16_t occluder_index = m_delay_push ? OCCLUDER_NONE : (uint16_t)m_occluders.count;
 
+	VertexMod* dst = m_delay_push ? m_vertices_late.ptr : m_vertices_mod.ptr;
+	memcpy(dst, vertices, sizeof(VertexMod) * 4);
+	for (uint32_t i = 0; i < 4; i++)
+		dst[i].tex_ids.y = occluder_index;
+
+	if (m_delay_push) {
 		m_vertices_late.ptr += 4;
 		m_vertices_late.count += 4;
 	} else {
-		memcpy(m_vertices_mod.ptr, vertices, sizeof(VertexMod) * 4);
-
 		m_vertices_mod.ptr += 4;
 		m_vertices_mod.count += 4;
 	}
 	m_frame.vertex_count += 4;
+}
+
+void Context::addOccluder(glm::vec2 pos, glm::vec2 size, uint32_t color)
+{
+	const uint8_t alpha = color & 0xFF;
+	if (!alpha || m_occluders.count >= MAX_OCCLUDERS)
+		return;
+
+	const glm::vec2 game_size = App.game.size;
+	const glm::vec2 end = pos + size;
+
+	m_occluders.rects[m_occluders.count] = {
+		2.0f * pos.x / game_size.x - 1.0f,
+		1.0f - 2.0f * pos.y / game_size.y,
+		2.0f * end.x / game_size.x - 1.0f,
+		1.0f - 2.0f * end.y / game_size.y,
+	};
+	m_occluders.attenuations[m_occluders.count] = 1.0f - (float)alpha / 255.0f;
+	m_occluders.count++;
 }
 
 void Context::appendDelayedObjects()
