@@ -194,6 +194,9 @@ void Menu::draw()
 			checkChanged(m_options.window.fullscreen != App.window.fullscreen);
 			drawSeparator();
 			ImGui::BeginDisabled(m_options.window.fullscreen);
+				drawCheckbox_m("Borderless Window", m_options.window.borderless, "Window without title bar & borders.", borderless_window);
+				checkChanged(m_options.window.borderless != App.window.borderless);
+				drawSeparator();
 				drawCombo_m("Window Size", App.resolutions, "", false, 17, resolutions);
 				checkChanged(App.resolutions.items[App.resolutions.selected].value != m_options.window.size_save);
 				ImGui::Dummy({ 0.0f, 1.0f });
@@ -252,6 +255,7 @@ void Menu::draw()
 						window_pos_cond = ImGuiCond_Always;
 
 					App.window.fullscreen = m_options.window.fullscreen;
+					App.window.borderless = m_options.window.borderless;
 					App.window.size = m_options.window.size_save;
 					App.window.size_save = m_options.window.size_save;
 					App.window.centered = m_options.window.centered;
@@ -264,6 +268,7 @@ void Menu::draw()
 					App.background_fps = m_options.background_fps;
 
 					saveBool("Screen", "fullscreen", App.window.fullscreen);
+					saveBool("Screen", "borderless_window", App.window.borderless);
 					saveInt("Screen", "window_width", App.window.size.x);
 					saveInt("Screen", "window_height", App.window.size.y);
 					saveBool("Screen", "centered_window", App.window.centered);
