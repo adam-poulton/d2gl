@@ -364,6 +364,8 @@ FodyWeavers.xsd
 
 /tools
 /bin
+/dist
+/stage
 /data
 /d2gl.props
 !/d2gl/vendor/lib/Debug/
