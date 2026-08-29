@@ -58,7 +58,7 @@ struct GameTexUpdate {
 };
 
 #define MAX_OCCLUDERS 64 // must match the u_Occluders/u_OccluderAtten array size in mod.glsl
-#define OCCLUDER_NONE 0xFFFF
+#define MOD_COVERAGE_CELLS 32 // module content occupancy grid, one bit per cell in a uint32 row
 
 // Opaque/translucent panel backgrounds emitted into the game vertex stream. The module pass is
 // composited after the whole game frame is resolved, so module content submitted *before* one of
