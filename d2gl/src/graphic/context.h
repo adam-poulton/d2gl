@@ -125,6 +125,7 @@ class Context {
 	Vertices<VertexMod, MAX_VERTICES_MOD, 1> m_vertices_late;
 	VertexParams m_vertex_params;
 	Occluders m_occluders;
+	uint32_t m_mod_coverage[MOD_COVERAGE_CELLS] = {};
 
 	FrameMetrics m_frame;
 	LimiterMetrics m_limiter;
@@ -195,6 +196,7 @@ public:
 	void pushObject(const std::unique_ptr<Object>& object);
 	void appendDelayedObjects();
 	void addOccluder(glm::vec2 pos, glm::vec2 size, uint32_t color);
+	void addPanelOccluders();
 
 	inline void setVertexColor(uint32_t color) { m_vertex_params.color = color; }
 	inline void setVertexTexShift(uint8_t shift) { m_vertex_params.tex_shift = shift; }
@@ -220,6 +222,10 @@ public:
 
 private:
 	void resetFileTime();
+
+	glm::ivec4 coverageCells(glm::vec2 pos, glm::vec2 size);
+	void markModCoverage(glm::vec2 pos, glm::vec2 size);
+	bool coversModContent(glm::vec2 pos, glm::vec2 size);
 
 	void imguiInit();
 	void imguiDestroy();

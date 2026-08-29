@@ -175,8 +175,8 @@ void main()
 		FragColor.a = 0.0;
 
 	// Panels emitted into the game stream after this fragment was submitted sit above it, so let
-	// them attenuate it by their own opacity. v_TexIds.y is OCCLUDER_NONE for delayed objects,
-	// which skips the loop entirely.
+	// them attenuate it by their own opacity. v_TexIds.y is how many were already registered when
+	// this fragment was pushed, so anything earlier than that is skipped.
 	for (int i = v_TexIds.y; i < u_OccluderCount; i++)
 	{
 		if (u_Occluders[i].x < v_Position.x && u_Occluders[i].z > v_Position.x &&

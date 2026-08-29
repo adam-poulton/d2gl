@@ -1,4 +1,4 @@
-﻿/*
+/*
 	D2GL: Diablo 2 LoD Glide/DDraw to OpenGL Wrapper.
 	Copyright (C) 2023  Bayaraa
 
@@ -674,6 +674,8 @@ void Context::onStageChange()
 		case DrawStage::World:
 			break;
 		case DrawStage::UI:
+			addPanelOccluders();
+			modules::HDText::drawFpsCounter();
 			if (ISGLIDE3X() && (App.bloom.active || App.lut.selected) && *d2::screen_shift != SCREENPANEL_BOTH) {
 				flushVertices();
 				m_command_buffer[m_frame_index].pushCommand(CommandType::PreFx, m_current_blend_index);
@@ -697,7 +699,6 @@ void Context::onStageChange()
 				modules::MiniMap::Instance().draw();
 			}
 			modules::HDText::Instance().drawEntryText();
-			modules::HDText::drawFpsCounter();
 			break;
 		case DrawStage::CursorItem:
 			flushVertices();
@@ -739,6 +740,7 @@ void Context::beginFrame()
 	m_vertices_late.ptr = m_vertices_late.data[0].data();
 
 	m_occluders.count = 0;
+	memset(m_mod_coverage, 0, sizeof(m_mod_coverage));
 
 	m_frame.vertex_count = 0;
 	m_frame.drawcall_count = 0;
@@ -898,9 +900,10 @@ void Context::pushObject(const std::unique_ptr<Object>& object)
 {
 	const auto vertices = object->getVertices();
 
-	// Delayed objects (hover tooltips, cursor) are appended last and belong above every panel, so
-	// they opt out of occlusion entirely.
-	const uint16_t occluder_index = m_delay_push ? OCCLUDER_NONE : (uint16_t)m_occluders.count;
+	// Delaying a push is about draw order within the module pass, not about z-order against the
+	// game pass: a delayed object still belongs under any panel the game draws after it.
+	const uint16_t occluder_index = (uint16_t)m_occluders.count;
+	markModCoverage(object->getPosition(), object->getSize());
 
 	VertexMod* dst = m_delay_push ? m_vertices_late.ptr : m_vertices_mod.ptr;
 	memcpy(dst, vertices, sizeof(VertexMod) * 4);
@@ -923,6 +926,11 @@ void Context::addOccluder(glm::vec2 pos, glm::vec2 size, uint32_t color)
 	if (!alpha || m_occluders.count >= MAX_OCCLUDERS)
 		return;
 
+	// An occluder only ever attenuates module content pushed before it, so one covering none is
+	// dead weight.
+	if (!coversModContent(pos, size))
+		return;
+
 	const glm::vec2 game_size = App.game.size;
 	const glm::vec2 end = pos + size;
 
@@ -934,6 +942,59 @@ void Context::addOccluder(glm::vec2 pos, glm::vec2 size, uint32_t color)
 	};
 	m_occluders.attenuations[m_occluders.count] = 1.0f - (float)alpha / 255.0f;
 	m_occluders.count++;
+}
+
+glm::ivec4 Context::coverageCells(glm::vec2 pos, glm::vec2 size)
+{
+	const glm::vec2 cell = glm::vec2(App.game.size) / (float)MOD_COVERAGE_CELLS;
+	const glm::vec2 end = pos + size;
+
+	return {
+		glm::clamp((int)glm::floor(pos.x / cell.x), 0, MOD_COVERAGE_CELLS - 1),
+		glm::clamp((int)glm::floor(pos.y / cell.y), 0, MOD_COVERAGE_CELLS - 1),
+		glm::clamp((int)glm::floor(end.x / cell.x), 0, MOD_COVERAGE_CELLS - 1),
+		glm::clamp((int)glm::floor(end.y / cell.y), 0, MOD_COVERAGE_CELLS - 1),
+	};
+}
+
+void Context::markModCoverage(glm::vec2 pos, glm::vec2 size)
+{
+	const auto cells = coverageCells(pos, size);
+	const uint32_t mask = (uint32_t)(((uint64_t)1 << (cells.z - cells.x + 1)) - 1) << cells.x;
+
+	for (int row = cells.y; row <= cells.w; row++)
+		m_mod_coverage[row] |= mask;
+}
+
+bool Context::coversModContent(glm::vec2 pos, glm::vec2 size)
+{
+	const auto cells = coverageCells(pos, size);
+	const uint32_t mask = (uint32_t)(((uint64_t)1 << (cells.z - cells.x + 1)) - 1) << cells.x;
+
+	for (int row = cells.y; row <= cells.w; row++) {
+		if (m_mod_coverage[row] & mask)
+			return true;
+	}
+
+	return false;
+}
+
+void Context::addPanelOccluders()
+{
+	if (App.game.screen != GameScreen::InGame || *d2::screen_shift == SCREENPANEL_NONE)
+		return;
+
+	// The game's own left/right panels are cell blits that go straight into the game vertex stream
+	// during this stage, so nothing registers them the way HDText::drawSolidRect registers the
+	// backgrounds it intercepts. Without an occluder, module content pushed during World/Map/HUD -
+	// the automap stat lines third-party overlays draw down the screen edge, among others - keeps
+	// floating over a panel that natively covers it.
+	const glm::vec2 size = { (float)App.game.size.x / 2.0f, (float)App.game.size.y };
+
+	if (*d2::screen_shift & SCREENPANEL_LEFT)
+		addOccluder({ 0.0f, 0.0f }, size, 0x000000FF);
+	if (*d2::screen_shift & SCREENPANEL_RIGHT)
+		addOccluder({ size.x, 0.0f }, size, 0x000000FF);
 }
 
 void Context::appendDelayedObjects()
