@@ -196,6 +196,7 @@ public:
 	void pushObject(const std::unique_ptr<Object>& object);
 	void appendDelayedObjects();
 	void addOccluder(glm::vec2 pos, glm::vec2 size, uint32_t color);
+	void addPanelOccluders();
 
 	inline void setVertexColor(uint32_t color) { m_vertex_params.color = color; }
 	inline void setVertexTexShift(uint8_t shift) { m_vertex_params.tex_shift = shift; }

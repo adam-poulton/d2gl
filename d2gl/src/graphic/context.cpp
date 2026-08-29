@@ -674,6 +674,8 @@ void Context::onStageChange()
 		case DrawStage::World:
 			break;
 		case DrawStage::UI:
+			addPanelOccluders();
+			modules::HDText::drawFpsCounter();
 			if (ISGLIDE3X() && (App.bloom.active || App.lut.selected) && *d2::screen_shift != SCREENPANEL_BOTH) {
 				flushVertices();
 				m_command_buffer[m_frame_index].pushCommand(CommandType::PreFx, m_current_blend_index);
@@ -697,7 +699,6 @@ void Context::onStageChange()
 				modules::MiniMap::Instance().draw();
 			}
 			modules::HDText::Instance().drawEntryText();
-			modules::HDText::drawFpsCounter();
 			break;
 		case DrawStage::CursorItem:
 			flushVertices();
@@ -976,6 +977,24 @@ bool Context::coversModContent(glm::vec2 pos, glm::vec2 size)
 	}
 
 	return false;
+}
+
+void Context::addPanelOccluders()
+{
+	if (App.game.screen != GameScreen::InGame || *d2::screen_shift == SCREENPANEL_NONE)
+		return;
+
+	// The game's own left/right panels are cell blits that go straight into the game vertex stream
+	// during this stage, so nothing registers them the way HDText::drawSolidRect registers the
+	// backgrounds it intercepts. Without an occluder, module content pushed during World/Map/HUD -
+	// the automap stat lines third-party overlays draw down the screen edge, among others - keeps
+	// floating over a panel that natively covers it.
+	const glm::vec2 size = { (float)App.game.size.x / 2.0f, (float)App.game.size.y };
+
+	if (*d2::screen_shift & SCREENPANEL_LEFT)
+		addOccluder({ 0.0f, 0.0f }, size, 0x000000FF);
+	if (*d2::screen_shift & SCREENPANEL_RIGHT)
+		addOccluder({ size.x, 0.0f }, size, 0x000000FF);
 }
 
 void Context::appendDelayedObjects()
