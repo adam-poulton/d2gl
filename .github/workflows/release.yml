@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub release (otherwise build and upload artifacts only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  SOLUTION: d2gl.sln
+  CONFIGURATION: Release
+  PLATFORM: x86
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $source = Get-Content d2gl/src/app.h -Raw
+          if ($source -notmatch 'version_str\s*=\s*"([^"]+)"') {
+            throw "Could not find version_str in d2gl/src/app.h"
+          }
+          $version = $Matches[1]
+
+          # Four-part Windows-native version, matching FILEVERSION exactly. Upstream
+          # ships three-part versions with a zero fourth field, so a non-zero fourth
+          # field marks a build from this fork. Append -rc<n> for a test build.
+          $pattern = '^(?<numeric>\d+\.\d+\.\d+\.\d+)(?<pre>-rc\d+)?$'
+          if ($version -notmatch $pattern) {
+            throw "version_str '$version' is not <major>.<minor>.<patch>.<build>[-rc<n>]."
+          }
+          $numeric = $Matches['numeric']
+          $prerelease = [bool]$Matches['pre']
+
+          foreach ($rc in 'glide3x/glide3x.rc', 'ddraw/ddraw.rc') {
+            $rcText = Get-Content $rc -Raw
+            if ($rcText -notmatch 'FILEVERSION\s+([0-9,\s]+)') { throw "Could not find FILEVERSION in $rc" }
+            $rcVersion = ($Matches[1] -split ',' | ForEach-Object { $_.Trim() }) -join '.'
+            if ($rcVersion -ne $numeric) {
+              throw "$rc declares FILEVERSION $rcVersion but app.h declares $version (expected $numeric). Keep them in sync."
+            }
+          }
+
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tag = $env:GITHUB_REF_NAME
+            $tagVersion = $tag -replace '^v', ''
+            if ($tagVersion -ne $version) {
+              throw "Tag $tag does not match version_str '$version' in d2gl/src/app.h. Update the version (app.h, glide3x/glide3x.rc, ddraw/ddraw.rc) or retag."
+            }
+          } else {
+            $tag = "v$version"
+            $prerelease = $true
+          }
+
+          "version=$version"       >> $env:GITHUB_OUTPUT
+          "tag=$tag"               >> $env:GITHUB_OUTPUT
+          "prerelease=$($prerelease.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "Version $version (tag $tag, prerelease $prerelease)" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build
+        shell: pwsh
+        run: |
+          msbuild $env:SOLUTION `
+            /p:Configuration=$env:CONFIGURATION `
+            /p:Platform=$env:PLATFORM `
+            /m `
+            /nologo `
+            /verbosity:minimal
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $bin = "bin/$env:CONFIGURATION"
+          $stage = "stage/d2gl"
+          New-Item -ItemType Directory -Path $stage, 'dist' -Force | Out-Null
+
+          foreach ($dll in 'glide3x.dll', 'ddraw.dll') {
+            $path = Join-Path $bin $dll
+            if (-not (Test-Path $path)) { throw "Build output missing: $path" }
+            Copy-Item $path $stage
+          }
+          Copy-Item README.md, LICENSE.md, THIRD_PARTY_LICENSES.md $stage
+
+          # Releases are wrapper binaries only. d2gl.mpq holds the runtime assets
+          # (shaders, glyph atlases, fonts, LUTs); it is neither tracked here nor
+          # produced by the build, so users keep the copy from their install.
+
+          $zip = "dist/d2gl-$version.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -CompressionLevel Optimal
+
+          # Symbols are shipped separately so crash reports can be symbolised.
+          $pdbs = Get-ChildItem -Path $bin -Filter '*.pdb' -File
+          if ($pdbs) {
+            Compress-Archive -Path $pdbs.FullName -DestinationPath "dist/d2gl-$version-pdb.zip" -CompressionLevel Optimal
+          }
+
+          Get-ChildItem dist -Filter '*.zip' |
+            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
+            Set-Content "dist/SHA256SUMS.txt" -Encoding ascii
+
+          Get-Content dist/SHA256SUMS.txt >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2gl-${{ steps.version.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref_type == 'tag' || inputs.publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $version = "${{ steps.version.outputs.version }}"
+
+          $notes = @()
+          $notes += "Diablo 2 LoD Glide/DDraw to OpenGL wrapper, version $version. Fork of [bayaraa/d2gl](https://github.com/bayaraa/d2gl)."
+          $notes += ""
+          $notes += "## Updating an existing install"
+          $notes += ""
+          $notes += "Extract ``d2gl-$version.zip`` into your Diablo II folder, overwriting ``glide3x.dll`` and ``ddraw.dll``. On D2 ``1.14d`` do not copy ``ddraw.dll`` - that version dropped software rendering."
+          $notes += ""
+          $notes += "This archive holds the wrapper DLLs only. Keep the ``d2gl.mpq`` already in your Diablo II folder: it is unchanged by this release, and without it the DLLs cannot load HD text, shaders or the option menu font."
+          $notes += ""
+          $notes += "## First-time install"
+          $notes += ""
+          $notes += "You need ``d2gl.mpq`` as well, so start from an [upstream release](https://github.com/bayaraa/d2gl/releases) and then apply the DLLs above. Full instructions are in the [upstream installation guide](https://github.com/bayaraa/d2gl/wiki/Installation)."
+          $notes += ""
+          $notes += "Run ``Game.exe`` with no flags for DDraw mode or ``-3dfx`` for Glide mode, with compatibility modes disabled. ``Ctrl+O`` opens the in-game option menu. Do not use a custom wrapper on official servers - you are likely to be banned."
+          $notes += ""
+          $notes += "## Verifying"
+          $notes += ""
+          $notes += "Check downloads against ``SHA256SUMS.txt``. ``d2gl-$version-pdb.zip`` holds the debug symbols; attach them along with ``d2gl.log`` when reporting a crash."
+          $notes -join "`n" | Set-Content dist/notes.md -Encoding utf8
+
+          $ghArgs = @(
+            'release', 'create', $tag,
+            '--title', "D2GL $version",
+            '--notes-file', 'dist/notes.md'
+          )
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $ghArgs += '--verify-tag'
+          } else {
+            # Manual run: tag the commit that was built.
+            $ghArgs += @('--target', $env:GITHUB_SHA)
+          }
+          if ("${{ steps.version.outputs.prerelease }}" -eq 'true') { $ghArgs += '--prerelease' }
+          $ghArgs += (Get-ChildItem dist -Filter '*.zip').FullName
+          $ghArgs += 'dist/SHA256SUMS.txt'
+
+          gh @ghArgs
