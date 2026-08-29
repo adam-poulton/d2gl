@@ -46,6 +46,8 @@ namespace d2gl::option {
 
 Menu::Menu()
 {
+	m_window_mode.items = { { "Windowed", WINDOW_MODE_WINDOWED }, { "Borderless", WINDOW_MODE_BORDERLESS }, { "Fullscreen", WINDOW_MODE_FULLSCREEN } };
+
 	m_colors[Color::Default] = ImColor(199, 179, 119);
 	m_colors[Color::Orange] = ImColor(255, 150, 0);
 	m_colors[Color::White] = ImColor(255, 255, 255, 180);
@@ -122,6 +124,7 @@ void Menu::toggle(bool force)
 	if (m_visible) {
 		m_options.vsync = App.vsync;
 		m_options.window = App.window;
+		m_window_mode.selected = App.window.fullscreen ? WINDOW_MODE_FULLSCREEN : (App.window.borderless ? WINDOW_MODE_BORDERLESS : WINDOW_MODE_WINDOWED);
 		m_options.foreground_fps = App.foreground_fps;
 		m_options.background_fps = App.background_fps;
 		m_options.unlock_cursor = App.cursor.unlock;
@@ -190,13 +193,12 @@ void Menu::draw()
 		if (tabBegin("Screen", 0, &active_tab)) {
 			bool changed = m_options.pos_changed;
 			childBegin("##w1", true, true);
-			drawCheckbox_m("Fullscreen", m_options.window.fullscreen, "Game will run in windowed mode if unchecked.", fullscreen);
-			checkChanged(m_options.window.fullscreen != App.window.fullscreen);
+			drawCombo_m("Window Mode", m_window_mode, "", false, 17, window_mode);
+			m_options.window.fullscreen = m_window_mode.selected == WINDOW_MODE_FULLSCREEN;
+			m_options.window.borderless = m_window_mode.selected == WINDOW_MODE_BORDERLESS;
+			checkChanged(m_options.window.fullscreen != App.window.fullscreen || m_options.window.borderless != App.window.borderless);
 			drawSeparator();
 			ImGui::BeginDisabled(m_options.window.fullscreen);
-				drawCheckbox_m("Borderless Window", m_options.window.borderless, "Window without title bar & borders.", borderless_window);
-				checkChanged(m_options.window.borderless != App.window.borderless);
-				drawSeparator();
 				drawCombo_m("Window Size", App.resolutions, "", false, 17, resolutions);
 				checkChanged(App.resolutions.items[App.resolutions.selected].value != m_options.window.size_save);
 				ImGui::Dummy({ 0.0f, 1.0f });
@@ -241,8 +243,10 @@ void Menu::draw()
 			drawCheckbox_m("Auto Minimize", m_options.window.auto_minimize, "Auto minimize when lose focus while in fullscreen.", auto_minimize);
 			checkChanged(m_options.window.auto_minimize != App.window.auto_minimize);
 			drawSeparator();
-			drawCheckbox_m("Dark Mode", m_options.window.dark_mode, "Dark window title bar. Affect on next launch.", dark_mode);
-			checkChanged(m_options.window.dark_mode != App.window.dark_mode);
+			ImGui::BeginDisabled(m_options.window.fullscreen || m_options.window.borderless);
+				drawCheckbox_m("Dark Mode", m_options.window.dark_mode, "Dark window title bar. Affect on next launch.", dark_mode);
+				checkChanged(m_options.window.dark_mode != App.window.dark_mode);
+			ImGui::EndDisabled();
 			childEnd();
 			ImGui::BeginDisabled(!changed);
 				if (drawNav("Apply Changes")) {
