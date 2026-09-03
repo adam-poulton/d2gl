@@ -108,17 +108,7 @@ jobs:
           $zip = "dist/d2gl-$version.zip"
           Compress-Archive -Path "$stage/*" -DestinationPath $zip -CompressionLevel Optimal
 
-          # Symbols are shipped separately so crash reports can be symbolised.
-          $pdbs = Get-ChildItem -Path $bin -Filter '*.pdb' -File
-          if ($pdbs) {
-            Compress-Archive -Path $pdbs.FullName -DestinationPath "dist/d2gl-$version-pdb.zip" -CompressionLevel Optimal
-          }
-
-          Get-ChildItem dist -Filter '*.zip' |
-            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
-            Set-Content "dist/SHA256SUMS.txt" -Encoding ascii
-
-          Get-Content dist/SHA256SUMS.txt >> $env:GITHUB_STEP_SUMMARY
+          "Packaged $zip" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -150,10 +140,6 @@ jobs:
           $notes += "You need ``d2gl.mpq`` as well, so start from an [upstream release](https://github.com/bayaraa/d2gl/releases) and then apply the DLLs above. Full instructions are in the [upstream installation guide](https://github.com/bayaraa/d2gl/wiki/Installation)."
           $notes += ""
           $notes += "Run ``Game.exe`` with no flags for DDraw mode or ``-3dfx`` for Glide mode, with compatibility modes disabled. ``Ctrl+O`` opens the in-game option menu. Do not use a custom wrapper on official servers - you are likely to be banned."
-          $notes += ""
-          $notes += "## Verifying"
-          $notes += ""
-          $notes += "Check downloads against ``SHA256SUMS.txt``. ``d2gl-$version-pdb.zip`` holds the debug symbols; attach them along with ``d2gl.log`` when reporting a crash."
           $notes -join "`n" | Set-Content dist/notes.md -Encoding utf8
 
           $ghArgs = @(
@@ -169,6 +155,5 @@ jobs:
           }
           if ("${{ steps.version.outputs.prerelease }}" -eq 'true') { $ghArgs += '--prerelease' }
           $ghArgs += (Get-ChildItem dist -Filter '*.zip').FullName
-          $ghArgs += 'dist/SHA256SUMS.txt'
 
           gh @ghArgs
