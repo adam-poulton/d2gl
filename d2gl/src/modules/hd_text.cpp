@@ -461,13 +461,33 @@ bool HDText::drawRectangledText(const wchar_t* str, int x, int y, uint32_t rect_
 	return true;
 }
 
+// The black fills d2gl restyles, as a colour with the opacity the draw mode asks for.
+static uint32_t solidRectColor(int draw_mode)
+{
+	switch (draw_mode) {
+		case 0: return 0x00000066;
+		case 1: return 0x00000099;
+		case 2: return 0x000000CC;
+		case 3: return 0x000000DD;
+	}
+	return 0x000000FF;
+}
+
 bool HDText::drawSolidRect(int left, int top, int right, int bottom, uint32_t color, int draw_mode)
 {
-	if (App.game.screen != GameScreen::InGame || !isActive())
+	if (!isActive())
 		return false;
 
 	const int width = right - left;
 	const int height = bottom - top;
+
+	if (App.game.screen == GameScreen::Menu) {
+		occludeMenuText(left, top, width, height, color, draw_mode);
+		return false;
+	}
+
+	if (App.game.screen != GameScreen::InGame)
+		return false;
 
 	if (d2::is_unit_hovered) {
 		const auto unit = d2::getSelectedUnit();
@@ -513,13 +533,7 @@ bool HDText::drawSolidRect(int left, int top, int right, int bottom, uint32_t co
 	if (draw_mode == 6 || draw_mode > 8)
 		return false;
 
-	uint32_t bg_color = 0x000000FF;
-	switch (draw_mode) {
-		case 0: bg_color = 0x00000066; break;
-		case 1: bg_color = 0x00000099; break;
-		case 2: bg_color = 0x000000CC; break;
-		case 3: bg_color = 0x000000DD; break;
-	}
+	const uint32_t bg_color = solidRectColor(draw_mode);
 	// draw_mode == 1 : NPC/Hire/Talk dialog bg & Key binding bg & option slider bg && BH settings btn/panel bg & message input bg & shrine text bg && message panel bg & message bg
 	// draw_mode == 2 : PD2 buff timer bg & stat panel popup(hit chance) bg & small button label
 	// draw_mode == 4 : PD2 stat panel bg
@@ -557,6 +571,28 @@ bool HDText::drawSolidRect(int left, int top, int right, int bottom, uint32_t co
 	App.context->pushObject(m_object_bg);
 
 	return true;
+}
+
+// Every bit of text on the menus goes through the HD (module) pass, which is composited after the
+// whole game frame is resolved, so a panel a third-party overlay draws through D2Gfx lands in the
+// game stream underneath and is shown through by every label it covers. In a game the panel
+// backgrounds this module intercepts register themselves as occluders when they are emitted into
+// that stream; a menu fill is not restyled, so nothing else would register it.
+void HDText::occludeMenuText(int left, int top, int width, int height, uint32_t color, int draw_mode)
+{
+	if (color != 0) // only the black fills panel chrome is built from
+		return;
+
+	// Mode 6 brightens rather than darkens, and nothing above 8 is a mode a known caller uses, so
+	// there is no opacity to attenuate text by.
+	if (draw_mode == 6 || draw_mode > 8)
+		return;
+
+	// A fill spanning the screen is a backdrop or a letterbox bar rather than a panel.
+	if (width >= (int)App.game.size.x || height >= (int)App.game.size.y)
+		return;
+
+	App.context->addOccluder({ (float)left, (float)top }, { (float)width, (float)height }, solidRectColor(draw_mode));
 }
 
 uint32_t HDText::getNormalTextWidth(const wchar_t* str, const int n_chars)
