@@ -113,6 +113,8 @@ public:
 	static void drawItemQuantity(bool draw, int x = 0, int y = 0);
 
 private:
+	void occludeMenuText(int left, int top, int width, int height, uint32_t color, int draw_mode);
+
 	void drawMonsterHealthBar(d2::UnitAny* unit);
 	void drawPlayerHealthBar(d2::UnitAny* unit);
 
