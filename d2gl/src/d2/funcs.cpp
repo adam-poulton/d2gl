@@ -137,6 +137,17 @@ MonsterType getMonsterType(UnitAny* unit)
 	return MonsterType::Normal;
 }
 
+// Returns a game text color index. The game's hover color turns red on death, so corpses keep their rarity color instead.
+uint32_t getMonsterNameColor(UnitAny* unit, uint32_t hover_color)
+{
+	switch (getMonsterType(unit)) {
+		case MonsterType::Boss:
+		case MonsterType::SuperUnique: return 4;
+		case MonsterType::Champion: return 3;
+		default: return getUnitStat(unit, STAT_HP) > 0 ? hover_color : 0;
+	}
+}
+
 wchar_t* getMonsterName(UnitAny* unit)
 {
 	return isVer(V_109d) ? unit->v109.pMonsterData->wName : unit->v110.pMonsterData->wName;
@@ -348,6 +359,13 @@ void __fastcall drawNormalTextExHooked(const wchar_t* str, int x, int y, uint32_
 
 void __fastcall drawFramedTextHooked(const wchar_t* str, int x, int y, uint32_t color, uint32_t centered)
 {
+	// The hovered monster's name is the framed text drawn at y 32.
+	if (!App.hd_text.active && y == 32) {
+		const auto unit = getSelectedUnit();
+		if (unit && unit->dwType == UnitType::Monster && getUnitStat(unit, STAT_HP) == 0)
+			color = getMonsterNameColor(unit, color);
+	}
+
 	const auto pos = modules::MotionPrediction::Instance().drawText(str, x, y, D2DrawFn::FramedText);
 	if (!modules::HDText::Instance().drawFramedText(str, pos.x, pos.y, color, centered))
 		drawFramedText(str, pos.x, pos.y, color, centered);
