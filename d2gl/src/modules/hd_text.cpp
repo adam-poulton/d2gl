@@ -912,6 +912,12 @@ void HDText::drawMonsterHealthBar(d2::UnitAny* unit)
 	const auto max_hp = d2::getUnitStat(unit, STAT_MAXHP);
 	const auto type = d2::getMonsterType(unit);
 
+	if (hp == 0) {
+		static wchar_t corpse_str[80] = { 0 };
+		_snwprintf_s(corpse_str, _TRUNCATE, L"%s Corpse", name);
+		name = corpse_str;
+	}
+
 	const auto font = getFont(1);
 	font->setShadow(2);
 	font->setMasking(false);
