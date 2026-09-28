@@ -41,6 +41,7 @@ UnitAny* getSelectedItem();
 bool isUnitDead(UnitAny* unit);
 char* getPlayerName(UnitAny* unit);
 MonsterType getMonsterType(UnitAny* unit);
+uint32_t getMonsterNameColor(UnitAny* unit, uint32_t hover_color);
 wchar_t* getMonsterName(UnitAny* unit);
 bool isMercUnit(UnitAny* unit);
 

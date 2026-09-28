@@ -910,7 +910,6 @@ void HDText::drawMonsterHealthBar(d2::UnitAny* unit)
 
 	const auto hp = d2::getUnitStat(unit, STAT_HP);
 	const auto max_hp = d2::getUnitStat(unit, STAT_MAXHP);
-	const auto type = d2::getMonsterType(unit);
 
 	if (hp == 0) {
 		static wchar_t corpse_str[80] = { 0 };
@@ -951,13 +950,7 @@ void HDText::drawMonsterHealthBar(d2::UnitAny* unit)
 		App.context->pushObject(m_object_bg);
 	}
 
-	wchar_t text_color = L'\x30';
-	if (type == d2::MonsterType::Boss || type == d2::MonsterType::SuperUnique)
-		text_color = L'\x34';
-	else if (type == d2::MonsterType::Champion)
-		text_color = L'\x33';
-	else if (hp > 0)
-		text_color = getColor(m_hovered_unit.color);
+	const auto text_color = getColor(d2::getMonsterNameColor(unit, m_hovered_unit.color));
 
 	glm::vec2 text_pos = { center - text_size.x / 2, bar_pos.y + 15.8f };
 	font->drawText(name, text_pos, g_text_colors.at(text_color));
