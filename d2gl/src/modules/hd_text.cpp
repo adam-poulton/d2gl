@@ -950,10 +950,8 @@ void HDText::drawMonsterHealthBar(d2::UnitAny* unit)
 		text_color = L'\x34';
 	else if (type == d2::MonsterType::Champion)
 		text_color = L'\x33';
-	else
+	else if (hp > 0)
 		text_color = getColor(m_hovered_unit.color);
-	if (hp == 0)
-		text_color = L'\x31';
 
 	glm::vec2 text_pos = { center - text_size.x / 2, bar_pos.y + 15.8f };
 	font->drawText(name, text_pos, g_text_colors.at(text_color));
