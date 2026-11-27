@@ -144,6 +144,7 @@ class Context {
 	std::unique_ptr<Pipeline> m_postfx_pipeline;
 	std::unique_ptr<Pipeline> m_fxaa_compute_pipeline;
 
+	std::unique_ptr<UniformBuffer> m_occluder_ubo;
 	std::unique_ptr<Pipeline> m_mod_pipeline;
 	int m_current_shader = -1;
 

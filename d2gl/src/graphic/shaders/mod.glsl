@@ -71,9 +71,12 @@ uniform vec4 u_TextMask;
 uniform vec4 u_Viewport;
 uniform bool u_IsMasking = false;
 uniform bool u_IsGlide = true;
-uniform vec4 u_Occluders[64];
-uniform float u_OccluderAtten[64];
 uniform int u_OccluderCount = 0;
+
+layout(std140) uniform ubo_Occluders {
+	vec4 u_Occluders[512];
+	vec4 u_OccluderAtten[128];
+};
 
 float msdf(vec3 rgb, float smoothess, float weight)
 {
@@ -176,12 +179,15 @@ void main()
 
 	// Panels emitted into the game stream after this fragment was submitted sit above it, so let
 	// them attenuate it by their own opacity. v_TexIds.y is how many were already registered when
-	// this fragment was pushed, so anything earlier than that is skipped.
-	for (int i = v_TexIds.y; i < u_OccluderCount; i++)
+	// this fragment was pushed, so anything earlier than that is skipped. Panel i is held in slot
+	// i % 512, the last 512 of a frame being the ones kept, with four attenuations to a vec4. A
+	// fragment that is already invisible has nothing left to hide.
+	for (int i = max(v_TexIds.y, u_OccluderCount - 512); i < u_OccluderCount && FragColor.a > 0.0; i++)
 	{
-		if (u_Occluders[i].x < v_Position.x && u_Occluders[i].z > v_Position.x &&
-			u_Occluders[i].y > v_Position.y && u_Occluders[i].w < v_Position.y)
-			FragColor.a *= u_OccluderAtten[i];
+		int slot = i & 511;
+		vec4 rect = u_Occluders[slot];
+		if (rect.x < v_Position.x && rect.z > v_Position.x && rect.y > v_Position.y && rect.w < v_Position.y)
+			FragColor.a *= u_OccluderAtten[slot >> 2][slot & 3];
 	}
 }
 

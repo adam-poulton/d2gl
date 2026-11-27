@@ -196,10 +196,15 @@ Context::Context()
 		m_fxaa_compute_pipeline = Context::createPipeline(fxaa_pipeline_ci);
 	}
 
+	UniformBufferCreateInfo occluder_ubo_ci;
+	occluder_ubo_ci.variables = { { "slots", sizeof(Occluders::Slots) } };
+	m_occluder_ubo = Context::createUniformBuffer(occluder_ubo_ci);
+
 	PipelineCreateInfo mod_pipeline_ci = { "module" };
 	mod_pipeline_ci.shader = g_shader_mod;
 	mod_pipeline_ci.attachment_blends = { { BlendType::SAlpha_OneMinusSAlpha } };
 	mod_pipeline_ci.bindings = {
+		{ BindingType::UniformBuffer, "ubo_Occluders", m_occluder_ubo->getBinding() },
 		{ BindingType::Texture, "u_CursorTexture", TEXTURE_SLOT_CURSOR },
 		{ BindingType::Texture, "u_FontTexture", TEXTURE_SLOT_FONTS },
 	};
@@ -515,10 +520,8 @@ void Context::renderThread(void* context)
 
 			ctx->bindPipeline(ctx->m_mod_pipeline);
 			ctx->m_mod_pipeline->setUniform1i("u_OccluderCount", cmd->m_occluders.count);
-			if (cmd->m_occluders.count) {
-				ctx->m_mod_pipeline->setUniformVec4fArray("u_Occluders", cmd->m_occluders.rects, cmd->m_occluders.count);
-				ctx->m_mod_pipeline->setUniform1fArray("u_OccluderAtten", cmd->m_occluders.attenuations, cmd->m_occluders.count);
-			}
+			if (cmd->m_occluders.count)
+				ctx->m_occluder_ubo->updateData("slots", &cmd->m_occluders.slots);
 			if (cmd->m_hd_text_mask.active) {
 				ctx->m_mod_pipeline->setUniformVec4f("u_TextMask", cmd->m_hd_text_mask.metrics);
 				ctx->m_mod_pipeline->setUniform1i("u_IsMasking", cmd->m_hd_text_mask.masking);
@@ -924,7 +927,7 @@ void Context::pushObject(const std::unique_ptr<Object>& object)
 void Context::addOccluder(glm::vec2 pos, glm::vec2 size, uint32_t color)
 {
 	const uint8_t alpha = color & 0xFF;
-	if (!alpha || m_occluders.count >= MAX_OCCLUDERS)
+	if (!alpha || m_occluders.count == UINT16_MAX) // a module vertex holds the count in 16 bits
 		return;
 
 	// An occluder only ever attenuates module content pushed before it, so one covering none is
@@ -932,16 +935,23 @@ void Context::addOccluder(glm::vec2 pos, glm::vec2 size, uint32_t color)
 	if (!coversModContent(pos, size))
 		return;
 
+	static bool overflow_reported = false;
+	if (m_occluders.count == MAX_OCCLUDERS && !overflow_reported) {
+		warn_log("HD text: a frame drew more than %d panels over text. The earliest ones no longer hide the text under them.", MAX_OCCLUDERS);
+		overflow_reported = true;
+	}
+
 	const glm::vec2 game_size = App.game.size;
 	const glm::vec2 end = pos + size;
+	const uint32_t slot = m_occluders.count % MAX_OCCLUDERS;
 
-	m_occluders.rects[m_occluders.count] = {
+	m_occluders.slots.rects[slot] = {
 		2.0f * pos.x / game_size.x - 1.0f,
 		1.0f - 2.0f * pos.y / game_size.y,
 		2.0f * end.x / game_size.x - 1.0f,
 		1.0f - 2.0f * end.y / game_size.y,
 	};
-	m_occluders.attenuations[m_occluders.count] = 1.0f - (float)alpha / 255.0f;
+	m_occluders.slots.attenuations[slot] = 1.0f - (float)alpha / 255.0f;
 	m_occluders.count++;
 }
 

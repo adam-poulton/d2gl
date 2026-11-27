@@ -57,7 +57,7 @@ struct GameTexUpdate {
 	glm::vec<2, uint16_t> size = { 0, 0 };
 };
 
-#define MAX_OCCLUDERS 64 // must match the u_Occluders/u_OccluderAtten array size in mod.glsl
+#define MAX_OCCLUDERS 512 // a power of two, matching the ubo_Occluders arrays in mod.glsl
 #define MOD_COVERAGE_CELLS 32 // module content occupancy grid, one bit per cell in a uint32 row
 
 // Opaque/translucent panel backgrounds emitted into the game vertex stream. The module pass is
@@ -65,10 +65,18 @@ struct GameTexUpdate {
 // these panels would otherwise draw on top of it. Each module vertex records how many panels had
 // been registered when it was pushed, and the module shader attenuates fragments that fall inside
 // a panel registered later than that.
+//
+// Panel number n of a frame lives in slot n % MAX_OCCLUDERS, so a frame with more panels than
+// slots keeps the ones registered last, which are the ones drawn on top.
 struct Occluders {
-	uint32_t count = 0;
-	glm::vec4 rects[MAX_OCCLUDERS] = {};    // clip space, matching the u_TextMask convention
-	float attenuations[MAX_OCCLUDERS] = {}; // 1.0 - panel alpha
+	// std140 layout of ubo_Occluders
+	struct Slots {
+		glm::vec4 rects[MAX_OCCLUDERS] = {};    // clip space, matching the u_TextMask convention
+		float attenuations[MAX_OCCLUDERS] = {}; // 1.0 - panel alpha
+	};
+
+	uint32_t count = 0; // panels registered this frame, which can exceed MAX_OCCLUDERS
+	Slots slots;
 };
 
 struct HDTextMasking {
